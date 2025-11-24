@@ -2,18 +2,18 @@ version: "3.9"
 
 services:
   db:
-    image: postgres:16
+    image: postgres:17
     container_name: snowops-anpr-db
     environment:
       POSTGRES_DB: snowops_anpr
-      POSTGRES_USER: snowops
-      POSTGRES_PASSWORD: snowops
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U snowops"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,10 +28,10 @@ services:
       APP_ENV: "development"
       HTTP_HOST: "0.0.0.0"
       HTTP_PORT: "8080"
-      DB_DSN: "postgres://snowops:snowops@db:5432/snowops_anpr?sslmode=disable"
+      DB_DSN: "postgres://postgres:postgres@127.0.0.1:5432/snowops_anpr?sslmode=disable"
       JWT_ACCESS_SECRET: "supersecret"
-      CAMERA_RTSP_URL: "rtsp://admin:Armat456321@192.168.1.101:554/Streaming/Channels/101"
-      CAMERA_HTTP_HOST: "http://192.168.1.101"
+      CAMERA_RTSP_URL: "rtsp://admin:SnowCam1!@194.26.239.249:554/Streaming/Channels/101"
+      CAMERA_HTTP_HOST: "http://194.26.239.249"
       CAMERA_MODEL: "DS-TCG406-E"
       HIK_CONNECT_DOMAIN: "litedev.hik-connect.com"
       ENABLE_SNOW_VOLUME_ANALYSIS: "false"

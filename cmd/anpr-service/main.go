@@ -9,8 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"anpr-service/internal/auth"
 	"anpr-service/internal/config"
 	"anpr-service/internal/db"
@@ -74,4 +72,3 @@ func main() {
 
 	appLogger.Info().Msg("server exited")
 }
-
