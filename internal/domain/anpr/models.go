@@ -2,6 +2,8 @@ package anpr
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type VehicleInfo struct {
@@ -23,21 +25,21 @@ type EventPayload struct {
 }
 
 type Event struct {
-	ID              int64
-	PlateID         int64
+	ID              uuid.UUID
+	PlateID         uuid.UUID
 	EventPayload
 	NormalizedPlate string
 }
 
 type ListHit struct {
-	ListID   int64  `json:"list_id"`
-	ListName string  `json:"list_name"`
-	ListType string  `json:"list_type"`
+	ListID   uuid.UUID `json:"list_id"`
+	ListName string    `json:"list_name"`
+	ListType string    `json:"list_type"`
 }
 
 type ProcessResult struct {
-	EventID int64     `json:"event_id"`
-	PlateID int64     `json:"plate_id"`
+	EventID uuid.UUID `json:"event_id"`
+	PlateID uuid.UUID `json:"plate_id"`
 	Plate   string    `json:"plate"`
 	Hits    []ListHit `json:"hits"`
 }

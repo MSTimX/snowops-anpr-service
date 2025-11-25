@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"anpr-service/internal/domain/anpr"
@@ -74,8 +75,8 @@ func (s *ANPRService) ProcessIncomingEvent(ctx context.Context, payload anpr.Eve
 	}
 
 	s.log.Info().
-		Int64("event_id", event.ID).
-		Int64("plate_id", plateID).
+		Str("event_id", event.ID.String()).
+		Str("plate_id", plateID.String()).
 		Str("plate", normalized).
 		Str("raw_plate", payload.Plate).
 		Str("camera_id", payload.CameraID).
@@ -86,27 +87,27 @@ func (s *ANPRService) ProcessIncomingEvent(ctx context.Context, payload anpr.Eve
 	if err != nil {
 		s.log.Error().
 			Err(err).
-			Int64("plate_id", plateID).
+			Str("plate_id", plateID.String()).
 			Msg("failed to find lists for plate")
 		return nil, fmt.Errorf("failed to find lists for plate: %w", err)
 	}
 
 	if len(hits) > 0 {
 		s.log.Info().
-			Int64("plate_id", plateID).
+			Str("plate_id", plateID.String()).
 			Str("plate", normalized).
 			Int("hits_count", len(hits)).
 			Msg("plate found in lists")
 		for _, hit := range hits {
 			s.log.Debug().
-				Int64("list_id", hit.ListID).
+				Str("list_id", hit.ListID.String()).
 				Str("list_name", hit.ListName).
 				Str("list_type", hit.ListType).
 				Msg("list hit")
 		}
 	} else {
 		s.log.Debug().
-			Int64("plate_id", plateID).
+			Str("plate_id", plateID.String()).
 			Str("plate", normalized).
 			Msg("plate not found in any lists")
 	}
@@ -134,7 +135,7 @@ func (s *ANPRService) FindPlates(ctx context.Context, plateQuery string) ([]Plat
 	for _, p := range plates {
 		lastEventTime, _ := s.repo.GetLastEventTimeForPlate(ctx, p.ID)
 		info := PlateInfo{
-			ID:            p.ID,
+			ID:            p.ID.String(),
 			Number:        p.Number,
 			Normalized:    p.Normalized,
 			LastEventTime: lastEventTime,
@@ -187,9 +188,14 @@ func (s *ANPRService) FindEvents(ctx context.Context, plateQuery *string, from, 
 
 	result := make([]EventInfo, 0, len(events))
 	for _, e := range events {
+		var plateID *string
+		if e.PlateID != nil {
+			id := e.PlateID.String()
+			plateID = &id
+		}
 		info := EventInfo{
-			ID:              e.ID,
-			PlateID:         e.PlateID,
+			ID:              e.ID.String(),
+			PlateID:         plateID,
 			CameraID:        e.CameraID,
 			CameraModel:     e.CameraModel,
 			Direction:       e.Direction,
@@ -221,16 +227,33 @@ func (s *ANPRService) CleanupOldEvents(ctx context.Context, days int) (int64, er
 	return deleted, nil
 }
 
+// SyncVehicleToWhitelist синхронизирует номер транспортного средства в whitelist
+// Вызывается при создании/обновлении vehicle в roles сервисе
+func (s *ANPRService) SyncVehicleToWhitelist(ctx context.Context, plateNumber string) (uuid.UUID, error) {
+	plateID, err := s.repo.SyncVehicleToWhitelist(ctx, plateNumber)
+	if err != nil {
+		s.log.Error().Err(err).Str("plate_number", plateNumber).Msg("failed to sync vehicle to whitelist")
+		return uuid.Nil, fmt.Errorf("sync vehicle to whitelist: %w", err)
+	}
+	
+	s.log.Info().
+		Str("plate_number", plateNumber).
+		Str("plate_id", plateID.String()).
+		Msg("vehicle synced to whitelist")
+	
+	return plateID, nil
+}
+
 type PlateInfo struct {
-	ID            int64      `json:"id"`
+	ID            string     `json:"id"`
 	Number        string     `json:"number"`
 	Normalized    string     `json:"normalized"`
 	LastEventTime *time.Time `json:"last_event_time,omitempty"`
 }
 
 type EventInfo struct {
-	ID              int64      `json:"id"`
-	PlateID         *int64     `json:"plate_id,omitempty"`
+	ID              string     `json:"id"`
+	PlateID         *string    `json:"plate_id,omitempty"`
 	CameraID        string     `json:"camera_id"`
 	CameraModel     *string    `json:"camera_model,omitempty"`
 	Direction       *string    `json:"direction,omitempty"`

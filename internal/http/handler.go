@@ -47,11 +47,11 @@ func (h *Handler) Register(r *gin.Engine, authMiddleware gin.HandlerFunc) {
 		public.GET("/camera/status", h.checkCameraStatus)
 	}
 
-	// Protected endpoints (if needed in future)
+	// Protected endpoints
 	protected := r.Group("/api/v1")
 	protected.Use(authMiddleware)
 	{
-		// Add protected endpoints here
+		protected.POST("/anpr/sync-vehicle", h.syncVehicleToWhitelist)
 	}
 }
 
@@ -248,8 +248,8 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 	}
 
 	h.log.Info().
-		Int64("event_id", result.EventID).
-		Int64("plate_id", result.PlateID).
+		Str("event_id", result.EventID.String()).
+		Str("plate_id", result.PlateID.String()).
 		Str("plate", result.Plate).
 		Int("hits_count", len(result.Hits)).
 		Msg("successfully processed and saved Hikvision event")
@@ -394,6 +394,36 @@ func successResponse(data interface{}) gin.H {
 	return gin.H{
 		"data": data,
 	}
+}
+
+func (h *Handler) syncVehicleToWhitelist(c *gin.Context) {
+	var req struct {
+		PlateNumber string `json:"plate_number" binding:"required"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+	
+	plateID, err := h.anprService.SyncVehicleToWhitelist(c.Request.Context(), req.PlateNumber)
+	if err != nil {
+		h.log.Error().Err(err).Str("plate_number", req.PlateNumber).Msg("failed to sync vehicle to whitelist")
+		c.JSON(http.StatusInternalServerError, errorResponse("failed to sync vehicle to whitelist"))
+		return
+	}
+	
+	h.log.Info().
+		Str("plate_number", req.PlateNumber).
+		Str("plate_id", plateID.String()).
+		Msg("vehicle synced to whitelist")
+	
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "ok",
+		"plate_id":    plateID.String(),
+		"plate_number": req.PlateNumber,
+		"message":     "vehicle added to whitelist",
+	})
 }
 
 func errorResponse(message string) gin.H {

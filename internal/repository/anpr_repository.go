@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
@@ -20,19 +21,37 @@ func NewANPRRepository(db *gorm.DB) *ANPRRepository {
 	return &ANPRRepository{db: db}
 }
 
+func (Plate) TableName() string {
+	return "anpr_plates"
+}
+
+func (ANPREvent) TableName() string {
+	return "anpr_events"
+}
+
+func (List) TableName() string {
+	return "anpr_lists"
+}
+
+func (ListItem) TableName() string {
+	return "anpr_list_items"
+}
+
 type Plate struct {
-	ID         int64  `gorm:"primaryKey"`
-	Number     string `gorm:"not null"`
-	Normalized string `gorm:"not null;uniqueIndex"`
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	Number     string    `gorm:"not null"`
+	Normalized string    `gorm:"not null;uniqueIndex"`
 	Country    *string
 	Region     *string
 	CreatedAt  time.Time
 }
 
 type ANPREvent struct {
-	ID              int64 `gorm:"primaryKey"`
-	PlateID         *int64
-	CameraID        string `gorm:"not null"`
+	ID              uuid.UUID  `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	PlateID         *uuid.UUID `gorm:"type:uuid"`
+	CameraID        string     `gorm:"not null"`
+	CameraUUID      *uuid.UUID `gorm:"type:uuid"`
+	PolygonID       *uuid.UUID `gorm:"type:uuid"`
 	CameraModel     *string
 	Direction       *string
 	Lane            *int
@@ -48,43 +67,45 @@ type ANPREvent struct {
 }
 
 type List struct {
-	ID          int64  `gorm:"primaryKey"`
-	Name        string `gorm:"not null;uniqueIndex"`
-	Type        string `gorm:"not null"`
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	Name        string    `gorm:"not null;uniqueIndex"`
+	Type        string    `gorm:"not null"`
 	Description *string
 	CreatedAt   time.Time
 }
 
 type ListItem struct {
-	ListID    int64 `gorm:"primaryKey"`
-	PlateID   int64 `gorm:"primaryKey"`
+	ListID    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	PlateID   uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Note      *string
 	CreatedAt time.Time
 }
 
-func (r *ANPRRepository) GetOrCreatePlate(ctx context.Context, normalized, original string) (int64, error) {
+func (r *ANPRRepository) GetOrCreatePlate(ctx context.Context, normalized, original string) (uuid.UUID, error) {
 	var plate Plate
 	err := r.db.WithContext(ctx).Where("normalized = ?", normalized).First(&plate).Error
 	if err == nil {
 		return plate.ID, nil
 	}
 	if err != gorm.ErrRecordNotFound {
-		return 0, err
+		return uuid.Nil, err
 	}
 
 	plate = Plate{
+		ID:         uuid.New(),
 		Number:     original,
 		Normalized: normalized,
 		CreatedAt:  time.Now(),
 	}
 	if err := r.db.WithContext(ctx).Create(&plate).Error; err != nil {
-		return 0, err
+		return uuid.Nil, err
 	}
 	return plate.ID, nil
 }
 
 func (r *ANPRRepository) CreateANPREvent(ctx context.Context, event *anpr.Event) error {
 	dbEvent := ANPREvent{
+		ID:              uuid.New(),
 		PlateID:         &event.PlateID,
 		CameraID:        event.CameraID,
 		RawPlate:        event.Plate,
@@ -130,14 +151,14 @@ func (r *ANPRRepository) CreateANPREvent(ctx context.Context, event *anpr.Event)
 	return nil
 }
 
-func (r *ANPRRepository) FindListsForPlate(ctx context.Context, plateID int64) ([]anpr.ListHit, error) {
+func (r *ANPRRepository) FindListsForPlate(ctx context.Context, plateID uuid.UUID) ([]anpr.ListHit, error) {
 	var hits []anpr.ListHit
 
 	err := r.db.WithContext(ctx).
-		Table("list_items").
-		Select("lists.id as list_id, lists.name as list_name, lists.type as list_type").
-		Joins("JOIN lists ON list_items.list_id = lists.id").
-		Where("list_items.plate_id = ?", plateID).
+		Table("anpr_list_items").
+		Select("anpr_lists.id as list_id, anpr_lists.name as list_name, anpr_lists.type as list_type").
+		Joins("JOIN anpr_lists ON anpr_list_items.list_id = anpr_lists.id").
+		Where("anpr_list_items.plate_id = ?", plateID).
 		Scan(&hits).Error
 
 	if err != nil {
@@ -185,7 +206,7 @@ func (r *ANPRRepository) FindEvents(ctx context.Context, normalizedPlate *string
 	return events, err
 }
 
-func (r *ANPRRepository) GetLastEventTimeForPlate(ctx context.Context, plateID int64) (*time.Time, error) {
+func (r *ANPRRepository) GetLastEventTimeForPlate(ctx context.Context, plateID uuid.UUID) (*time.Time, error) {
 	var event ANPREvent
 	err := r.db.WithContext(ctx).
 		Where("plate_id = ?", plateID).
@@ -200,6 +221,19 @@ func (r *ANPRRepository) GetLastEventTimeForPlate(ctx context.Context, plateID i
 	}
 
 	return &event.EventTime, nil
+}
+
+// SyncVehicleToWhitelist синхронизирует номер из vehicles в whitelist
+// Вызывается при создании/обновлении vehicle в roles сервисе
+func (r *ANPRRepository) SyncVehicleToWhitelist(ctx context.Context, plateNumber string) (uuid.UUID, error) {
+	var plateID uuid.UUID
+	err := r.db.WithContext(ctx).
+		Raw("SELECT anpr_sync_vehicle_to_whitelist(?)", plateNumber).
+		Scan(&plateID).Error
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("sync vehicle to whitelist: %w", err)
+	}
+	return plateID, nil
 }
 
 // DeleteOldEvents удаляет события старше указанного количества дней
