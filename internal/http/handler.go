@@ -44,6 +44,7 @@ func (h *Handler) Register(r *gin.Engine, authMiddleware gin.HandlerFunc) {
 		public.POST("/anpr/hikvision", h.createHikvisionEvent)
 		public.GET("/plates", h.listPlates)
 		public.GET("/events", h.listEvents)
+		public.GET("/camera/status", h.checkCameraStatus)
 	}
 
 	// Protected endpoints (if needed in future)
@@ -161,6 +162,14 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 }
 
 func (h *Handler) createHikvisionEvent(c *gin.Context) {
+	h.log.Info().
+		Str("method", c.Request.Method).
+		Str("path", c.Request.URL.Path).
+		Str("remote_addr", c.ClientIP()).
+		Str("user_agent", c.Request.UserAgent()).
+		Str("content_type", c.Request.Header.Get("Content-Type")).
+		Msg("received Hikvision event request")
+
 	if err := c.Request.ParseMultipartForm(10 << 20); err != nil {
 		h.log.Error().Err(err).Msg("failed to parse multipart request")
 		c.JSON(http.StatusBadRequest, errorResponse("invalid multipart payload"))
@@ -174,12 +183,28 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 		return
 	}
 
+	h.log.Debug().
+		Int("xml_size", len(xmlPayload)).
+		Str("xml_preview", string(xmlPayload[:min(200, len(xmlPayload))])).
+		Msg("extracted XML payload")
+
 	hikEvent := &hikvisionEvent{}
 	if err := xml.Unmarshal(xmlPayload, hikEvent); err != nil {
-		h.log.Error().Err(err).Msg("failed to parse hikvision xml")
+		h.log.Error().
+			Err(err).
+			Str("xml_content", string(xmlPayload)).
+			Msg("failed to parse hikvision xml")
 		c.JSON(http.StatusBadRequest, errorResponse("invalid xml payload"))
 		return
 	}
+
+	h.log.Info().
+		Str("event_type", hikEvent.EventType).
+		Str("license_plate", hikEvent.ANPR.LicensePlate).
+		Str("device_id", hikEvent.DeviceID).
+		Str("channel_id", hikEvent.ChannelID).
+		Str("date_time", hikEvent.DateTime).
+		Msg("parsed Hikvision event")
 
 	payload := hikEvent.ToEventPayload()
 
@@ -205,13 +230,29 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 	result, err := h.anprService.ProcessIncomingEvent(c.Request.Context(), payload, h.config.Camera.Model)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidInput) {
+			h.log.Warn().
+				Err(err).
+				Str("plate", payload.Plate).
+				Str("camera_id", payload.CameraID).
+				Msg("invalid input for Hikvision event")
 			c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
 			return
 		}
-		h.log.Error().Err(err).Msg("failed to process hikvision event")
+		h.log.Error().
+			Err(err).
+			Str("plate", payload.Plate).
+			Str("camera_id", payload.CameraID).
+			Msg("failed to process hikvision event")
 		c.JSON(http.StatusInternalServerError, errorResponse("internal error"))
 		return
 	}
+
+	h.log.Info().
+		Int64("event_id", result.EventID).
+		Int64("plate_id", result.PlateID).
+		Str("plate", result.Plate).
+		Int("hits_count", len(result.Hits)).
+		Msg("successfully processed and saved Hikvision event")
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":    "ok",
@@ -221,6 +262,13 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 		"hits":      result.Hits,
 		"processed": true,
 	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func extractXMLPayload(form *multipart.Form) ([]byte, error) {
@@ -356,4 +404,65 @@ func errorResponse(message string) gin.H {
 
 func parseInt(s string) (int, error) {
 	return strconv.Atoi(s)
+}
+
+func (h *Handler) checkCameraStatus(c *gin.Context) {
+	httpHost := h.config.Camera.HTTPHost
+	rtspURL := h.config.Camera.RTSPURL
+	cameraModel := h.config.Camera.Model
+
+	status := gin.H{
+		"camera_model": cameraModel,
+		"http_host":    httpHost,
+		"rtsp_url":     maskPassword(rtspURL),
+		"configured":   httpHost != "" && rtspURL != "",
+	}
+
+	// Проверяем доступность HTTP интерфейса камеры
+	if httpHost != "" {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(httpHost)
+		if err != nil {
+			status["http_accessible"] = false
+			status["http_error"] = err.Error()
+		} else {
+			resp.Body.Close()
+			status["http_accessible"] = resp.StatusCode < 500
+			status["http_status"] = resp.StatusCode
+		}
+	} else {
+		status["http_accessible"] = false
+		status["http_error"] = "HTTP host not configured"
+	}
+
+	// RTSP URL проверяем только на наличие (для проверки подключения нужен специальный клиент)
+	status["rtsp_configured"] = rtspURL != ""
+
+	h.log.Info().
+		Str("http_host", httpHost).
+		Bool("http_accessible", status["http_accessible"].(bool)).
+		Msg("camera status checked")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": status,
+	})
+}
+
+func maskPassword(url string) string {
+	// Маскируем пароль в URL для безопасности
+	if strings.Contains(url, "@") {
+		parts := strings.Split(url, "@")
+		if len(parts) == 2 {
+			authPart := parts[0]
+			if strings.Contains(authPart, "://") {
+				protocol := strings.Split(authPart, "://")[0]
+				credentials := strings.Split(authPart, "://")[1]
+				if strings.Contains(credentials, ":") {
+					username := strings.Split(credentials, ":")[0]
+					return protocol + "://" + username + ":****@" + parts[1]
+				}
+			}
+		}
+	}
+	return url
 }

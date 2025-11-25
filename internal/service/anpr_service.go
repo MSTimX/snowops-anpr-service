@@ -65,14 +65,50 @@ func (s *ANPRService) ProcessIncomingEvent(ctx context.Context, payload anpr.Eve
 	event.CameraModel = cameraModel
 
 	if err := s.repo.CreateANPREvent(ctx, event); err != nil {
-		s.log.Error().Err(err).Msg("failed to create ANPR event")
+		s.log.Error().
+			Err(err).
+			Str("plate", normalized).
+			Str("camera_id", payload.CameraID).
+			Msg("failed to create ANPR event")
 		return nil, fmt.Errorf("failed to create ANPR event: %w", err)
 	}
 
+	s.log.Info().
+		Int64("event_id", event.ID).
+		Int64("plate_id", plateID).
+		Str("plate", normalized).
+		Str("raw_plate", payload.Plate).
+		Str("camera_id", payload.CameraID).
+		Time("event_time", payload.EventTime).
+		Msg("saved ANPR event to database")
+
 	hits, err := s.repo.FindListsForPlate(ctx, plateID)
 	if err != nil {
-		s.log.Error().Err(err).Msg("failed to find lists for plate")
+		s.log.Error().
+			Err(err).
+			Int64("plate_id", plateID).
+			Msg("failed to find lists for plate")
 		return nil, fmt.Errorf("failed to find lists for plate: %w", err)
+	}
+
+	if len(hits) > 0 {
+		s.log.Info().
+			Int64("plate_id", plateID).
+			Str("plate", normalized).
+			Int("hits_count", len(hits)).
+			Msg("plate found in lists")
+		for _, hit := range hits {
+			s.log.Debug().
+				Int64("list_id", hit.ListID).
+				Str("list_name", hit.ListName).
+				Str("list_type", hit.ListType).
+				Msg("list hit")
+		}
+	} else {
+		s.log.Debug().
+			Int64("plate_id", plateID).
+			Str("plate", normalized).
+			Msg("plate not found in any lists")
 	}
 
 	return &anpr.ProcessResult{
@@ -170,6 +206,19 @@ func (s *ANPRService) FindEvents(ctx context.Context, plateQuery *string, from, 
 	}
 
 	return result, nil
+}
+
+// CleanupOldEvents удаляет события старше указанного количества дней
+func (s *ANPRService) CleanupOldEvents(ctx context.Context, days int) (int64, error) {
+	deleted, err := s.repo.DeleteOldEvents(ctx, days)
+	if err != nil {
+		s.log.Error().Err(err).Int("days", days).Msg("failed to cleanup old events")
+		return 0, err
+	}
+	if deleted > 0 {
+		s.log.Info().Int64("deleted_count", deleted).Int("days", days).Msg("cleaned up old events")
+	}
+	return deleted, nil
 }
 
 type PlateInfo struct {

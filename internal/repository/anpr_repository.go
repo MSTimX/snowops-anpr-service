@@ -2,8 +2,11 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"anpr-service/internal/domain/anpr"
@@ -18,43 +21,43 @@ func NewANPRRepository(db *gorm.DB) *ANPRRepository {
 }
 
 type Plate struct {
-	ID         int64     `gorm:"primaryKey"`
-	Number     string    `gorm:"not null"`
-	Normalized string    `gorm:"not null;uniqueIndex"`
+	ID         int64  `gorm:"primaryKey"`
+	Number     string `gorm:"not null"`
+	Normalized string `gorm:"not null;uniqueIndex"`
 	Country    *string
 	Region     *string
 	CreatedAt  time.Time
 }
 
 type ANPREvent struct {
-	ID              int64                  `gorm:"primaryKey"`
+	ID              int64 `gorm:"primaryKey"`
 	PlateID         *int64
-	CameraID        string                 `gorm:"not null"`
+	CameraID        string `gorm:"not null"`
 	CameraModel     *string
 	Direction       *string
 	Lane            *int
-	RawPlate        string                 `gorm:"not null"`
-	NormalizedPlate string                 `gorm:"not null"`
+	RawPlate        string `gorm:"not null"`
+	NormalizedPlate string `gorm:"not null"`
 	Confidence      *float64
 	VehicleColor    *string
 	VehicleType     *string
 	SnapshotURL     *string
-	EventTime       time.Time              `gorm:"not null"`
-	RawPayload      map[string]interface{} `gorm:"type:jsonb"`
+	EventTime       time.Time      `gorm:"not null"`
+	RawPayload      datatypes.JSON `gorm:"type:jsonb"`
 	CreatedAt       time.Time
 }
 
 type List struct {
-	ID          int64     `gorm:"primaryKey"`
-	Name        string    `gorm:"not null;uniqueIndex"`
-	Type        string    `gorm:"not null"`
+	ID          int64  `gorm:"primaryKey"`
+	Name        string `gorm:"not null;uniqueIndex"`
+	Type        string `gorm:"not null"`
 	Description *string
 	CreatedAt   time.Time
 }
 
 type ListItem struct {
-	ListID    int64     `gorm:"primaryKey"`
-	PlateID   int64     `gorm:"primaryKey"`
+	ListID    int64 `gorm:"primaryKey"`
+	PlateID   int64 `gorm:"primaryKey"`
 	Note      *string
 	CreatedAt time.Time
 }
@@ -112,7 +115,11 @@ func (r *ANPRRepository) CreateANPREvent(ctx context.Context, event *anpr.Event)
 		dbEvent.SnapshotURL = &event.SnapshotURL
 	}
 	if len(event.RawPayload) > 0 {
-		dbEvent.RawPayload = event.RawPayload
+		raw, err := json.Marshal(event.RawPayload)
+		if err != nil {
+			return fmt.Errorf("marshal raw payload: %w", err)
+		}
+		dbEvent.RawPayload = datatypes.JSON(raw)
 	}
 
 	if err := r.db.WithContext(ctx).Create(&dbEvent).Error; err != nil {
@@ -195,3 +202,16 @@ func (r *ANPRRepository) GetLastEventTimeForPlate(ctx context.Context, plateID i
 	return &event.EventTime, nil
 }
 
+// DeleteOldEvents удаляет события старше указанного количества дней
+func (r *ANPRRepository) DeleteOldEvents(ctx context.Context, days int) (int64, error) {
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	result := r.db.WithContext(ctx).
+		Where("created_at < ?", cutoffTime).
+		Delete(&ANPREvent{})
+
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	return result.RowsAffected, nil
+}
