@@ -11,10 +11,22 @@
         <licensePlate>795AAZ15</licensePlate>
         <confidenceLevel>95.5</confidenceLevel>
         <vehicleType>truck</vehicleType>
-        <color>orange</color>
+        <vehicleColor>orange</vehicleColor>
+        <plateColor>yellow</plateColor>
+        <country>United Kingdom</country>
         <direction>forward</direction>
         <laneNo>1</laneNo>
+        <speed>25.5</speed>
     </ANPR>
+    <vehicleInfo>
+        <vehicleType>truck</vehicleType>
+        <vehicleColor>orange</vehicleColor>
+        <brand>Qingling/Isuzu</brand>
+        <vehicleModel>Small-Sized Truck</vehicleModel>
+        <country>United Kingdom</country>
+        <plateColor>yellow</plateColor>
+        <speed>25.5</speed>
+    </vehicleInfo>
     <picInfo>
         <ftpPath>http://194.26.239.249/snapshot.jpg</ftpPath>
     </picInfo>

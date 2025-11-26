@@ -42,6 +42,7 @@ func (h *Handler) Register(r *gin.Engine, authMiddleware gin.HandlerFunc) {
 	{
 		public.POST("/anpr/events", h.createANPREvent)
 		public.POST("/anpr/hikvision", h.createHikvisionEvent)
+		public.GET("/anpr/hikvision", h.checkHikvisionEndpoint) // Для проверки доступности камерой
 		public.GET("/plates", h.listPlates)
 		public.GET("/events", h.listEvents)
 		public.GET("/camera/status", h.checkCameraStatus)
@@ -206,7 +207,7 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 		Str("date_time", hikEvent.DateTime).
 		Msg("parsed Hikvision event")
 
-	payload := hikEvent.ToEventPayload()
+	payload := hikEvent.ToEventPayload(xmlPayload)
 
 	if payload.CameraID == "" {
 		cameraID := c.Query("camera_id")
@@ -264,6 +265,22 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 	})
 }
 
+// checkHikvisionEndpoint обрабатывает GET запросы от камеры для проверки доступности эндпоинта
+func (h *Handler) checkHikvisionEndpoint(c *gin.Context) {
+	h.log.Info().
+		Str("method", c.Request.Method).
+		Str("path", c.Request.URL.Path).
+		Str("remote_addr", c.ClientIP()).
+		Str("user_agent", c.Request.UserAgent()).
+		Msg("received Hikvision endpoint check request")
+
+	// Возвращаем 200 OK, чтобы камера знала, что эндпоинт доступен
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"message": "Hikvision ANPR endpoint is available",
+	})
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -308,44 +325,98 @@ func isXMLFile(fh *multipart.FileHeader) bool {
 }
 
 type hikvisionEvent struct {
-	XMLName   xml.Name `xml:"EventNotificationAlert"`
-	EventType string   `xml:"eventType"`
-	DateTime  string   `xml:"dateTime"`
-	ChannelID string   `xml:"channelID"`
-	DeviceID  string   `xml:"deviceID"`
-	ANPR      struct {
-		LicensePlate    string  `xml:"licensePlate"`
-		ConfidenceLevel float64 `xml:"confidenceLevel"`
-		VehicleType     string  `xml:"vehicleType"`
-		Color           string  `xml:"color"`
-		Direction       string  `xml:"direction"`
-		LaneNo          string  `xml:"laneNo"`
-	} `xml:"ANPR"`
+	XMLName          xml.Name `xml:"EventNotificationAlert"`
+	EventType        string   `xml:"eventType" json:"event_type"`
+	EventDescription string   `xml:"eventDescription" json:"event_description"`
+	DateTime         string   `xml:"dateTime" json:"date_time"`
+	ChannelID        string   `xml:"channelID" json:"channel_id"`
+	DeviceID         string   `xml:"deviceID" json:"device_id"`
+	DeviceName       string   `xml:"deviceName" json:"device_name"`
+	IPAddress        string   `xml:"ipAddress" json:"ip_address"`
+	PortNo           string   `xml:"portNo" json:"port_no"`
+	ProtocolType     string   `xml:"protocolType" json:"protocol_type"`
+	ANPR             struct {
+		LicensePlate    string  `xml:"licensePlate" json:"license_plate"`
+		ConfidenceLevel float64 `xml:"confidenceLevel" json:"confidence_level"`
+		VehicleType     string  `xml:"vehicleType" json:"vehicle_type"`
+		VehicleColor    string  `xml:"vehicleColor" json:"vehicle_color"`
+		Color           string  `xml:"color" json:"color"`
+		PlateColor      string  `xml:"plateColor" json:"plate_color"`
+		Country         string  `xml:"country" json:"country"`
+		Brand           string  `xml:"brand" json:"brand"`
+		Direction       string  `xml:"direction" json:"direction"`
+		LaneNo          string  `xml:"laneNo" json:"lane_no"`
+		Speed           string  `xml:"speed" json:"speed"`
+	} `xml:"ANPR" json:"anpr"`
+	VehicleInfo struct {
+		Type       string `xml:"vehicleType" json:"vehicle_type"`
+		Color      string `xml:"vehicleColor" json:"vehicle_color"`
+		Brand      string `xml:"brand" json:"brand"`
+		Model      string `xml:"vehicleModel" json:"vehicle_model"`
+		PlateColor string `xml:"plateColor" json:"plate_color"`
+		Country    string `xml:"country" json:"country"`
+		Speed      string `xml:"speed" json:"speed"`
+	} `xml:"vehicleInfo" json:"vehicle_info"`
 	PicInfo struct {
-		StoragePath string `xml:"ftpPath"`
-	} `xml:"picInfo"`
+		StoragePath string   `xml:"ftpPath" json:"ftp_path"`
+		FilePath    string   `xml:"filePath" json:"file_path"`
+		FilePaths   []string `xml:"filePathList>filePath" json:"file_path_list"`
+	} `xml:"picInfo" json:"pic_info"`
 }
 
-func (e *hikvisionEvent) ToEventPayload() anpr.EventPayload {
+func (e *hikvisionEvent) ToEventPayload(rawXML []byte) anpr.EventPayload {
 	eventTime := parseHikvisionTime(e.DateTime)
 	lane := parseLane(e.ANPR.LaneNo)
 
+	vehicleColor := firstNonEmpty(e.ANPR.VehicleColor, e.ANPR.Color, e.VehicleInfo.Color)
+	vehicleType := firstNonEmpty(e.ANPR.VehicleType, e.VehicleInfo.Type)
+	vehiclePlateColor := firstNonEmpty(e.ANPR.PlateColor, e.VehicleInfo.PlateColor)
+	vehicleCountry := firstNonEmpty(e.ANPR.Country, e.VehicleInfo.Country)
+	vehicleBrand := firstNonEmpty(e.VehicleInfo.Brand, e.ANPR.Brand)
+	vehicleModel := e.VehicleInfo.Model
+	speedPtr := parseOptionalFloat(firstNonEmpty(e.VehicleInfo.Speed, e.ANPR.Speed))
+
+	cameraModel := firstNonEmpty(e.DeviceName, e.DeviceID)
+	snapshotURL := firstNonEmpty(e.PicInfo.StoragePath, e.PicInfo.FilePath)
+	if snapshotURL == "" && len(e.PicInfo.FilePaths) > 0 {
+		snapshotURL = e.PicInfo.FilePaths[0]
+	}
+
+	rawPayload := map[string]interface{}{
+		"event_type":        e.EventType,
+		"event_description": e.EventDescription,
+		"device_id":         e.DeviceID,
+		"device_name":       e.DeviceName,
+		"channel_id":        e.ChannelID,
+		"ip_address":        e.IPAddress,
+		"port_no":           e.PortNo,
+		"protocol_type":     e.ProtocolType,
+		"anpr":              e.ANPR,
+		"vehicle_info":      e.VehicleInfo,
+	}
+	if len(rawXML) > 0 {
+		rawPayload["xml"] = string(rawXML)
+	}
+
 	return anpr.EventPayload{
 		CameraID:    firstNonEmpty(e.ChannelID, e.DeviceID),
-		CameraModel: "",
+		CameraModel: cameraModel,
 		Plate:       strings.TrimSpace(e.ANPR.LicensePlate),
 		Confidence:  e.ANPR.ConfidenceLevel,
 		Direction:   e.ANPR.Direction,
 		Lane:        lane,
 		EventTime:   eventTime,
 		Vehicle: anpr.VehicleInfo{
-			Color: e.ANPR.Color,
-			Type:  e.ANPR.VehicleType,
+			Color:      vehicleColor,
+			Type:       vehicleType,
+			Brand:      vehicleBrand,
+			Model:      vehicleModel,
+			Country:    vehicleCountry,
+			PlateColor: vehiclePlateColor,
+			Speed:      speedPtr,
 		},
-		SnapshotURL: e.PicInfo.StoragePath,
-		RawPayload: map[string]interface{}{
-			"event_type": e.EventType,
-		},
+		SnapshotURL: snapshotURL,
+		RawPayload:  rawPayload,
 	}
 }
 
@@ -381,6 +452,17 @@ func parseLane(value string) int {
 	return lane
 }
 
+func parseOptionalFloat(value string) *float64 {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	if f, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+		return &f
+	}
+	return nil
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -400,29 +482,29 @@ func (h *Handler) syncVehicleToWhitelist(c *gin.Context) {
 	var req struct {
 		PlateNumber string `json:"plate_number" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
-	
+
 	plateID, err := h.anprService.SyncVehicleToWhitelist(c.Request.Context(), req.PlateNumber)
 	if err != nil {
 		h.log.Error().Err(err).Str("plate_number", req.PlateNumber).Msg("failed to sync vehicle to whitelist")
 		c.JSON(http.StatusInternalServerError, errorResponse("failed to sync vehicle to whitelist"))
 		return
 	}
-	
+
 	h.log.Info().
 		Str("plate_number", req.PlateNumber).
 		Str("plate_id", plateID.String()).
 		Msg("vehicle synced to whitelist")
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":      "ok",
-		"plate_id":    plateID.String(),
+		"status":       "ok",
+		"plate_id":     plateID.String(),
 		"plate_number": req.PlateNumber,
-		"message":     "vehicle added to whitelist",
+		"message":      "vehicle added to whitelist",
 	})
 }
 

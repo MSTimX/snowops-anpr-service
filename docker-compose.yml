@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5431:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +28,7 @@ services:
       APP_ENV: "development"
       HTTP_HOST: "0.0.0.0"
       HTTP_PORT: "8080"
-      DB_DSN: "postgres://postgres:postgres@127.0.0.1:5432/snowops_anpr?sslmode=disable"
+      DB_DSN: "postgres://postgres:postgres@db:5432/snowops_anpr?sslmode=disable"
       JWT_ACCESS_SECRET: "supersecret"
       CAMERA_RTSP_URL: "rtsp://admin:SnowCam1!@194.26.239.249:554/Streaming/Channels/101"
       CAMERA_HTTP_HOST: "http://194.26.239.249"
@@ -36,7 +36,7 @@ services:
       HIK_CONNECT_DOMAIN: "litedev.hik-connect.com"
       ENABLE_SNOW_VOLUME_ANALYSIS: "false"
     ports:
-      - "8082:8080"
+      - "8080:8080"
     restart: unless-stopped
 
 volumes:

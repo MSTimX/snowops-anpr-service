@@ -7,26 +7,31 @@ import (
 )
 
 type VehicleInfo struct {
-	Color string `json:"color,omitempty"`
-	Type  string `json:"type,omitempty"`
+	Color      string   `json:"color,omitempty"`
+	Type       string   `json:"type,omitempty"`
+	Brand      string   `json:"brand,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	Country    string   `json:"country,omitempty"`
+	PlateColor string   `json:"plate_color,omitempty"`
+	Speed      *float64 `json:"speed,omitempty"`
 }
 
 type EventPayload struct {
-	CameraID     string                 `json:"camera_id"`
-	CameraModel  string                 `json:"camera_model,omitempty"`
-	Plate        string                 `json:"plate"`
-	Confidence   float64                `json:"confidence"`
-	Direction    string                 `json:"direction"`
-	Lane         int                    `json:"lane"`
-	EventTime    time.Time              `json:"event_time"`
-	Vehicle      VehicleInfo            `json:"vehicle"`
-	SnapshotURL  string                 `json:"snapshot_url,omitempty"`
-	RawPayload   map[string]interface{} `json:"raw_payload,omitempty"`
+	CameraID    string                 `json:"camera_id"`
+	CameraModel string                 `json:"camera_model,omitempty"`
+	Plate       string                 `json:"plate"`
+	Confidence  float64                `json:"confidence"`
+	Direction   string                 `json:"direction"`
+	Lane        int                    `json:"lane"`
+	EventTime   time.Time              `json:"event_time"`
+	Vehicle     VehicleInfo            `json:"vehicle"`
+	SnapshotURL string                 `json:"snapshot_url,omitempty"`
+	RawPayload  map[string]interface{} `json:"raw_payload,omitempty"`
 }
 
 type Event struct {
-	ID              uuid.UUID
-	PlateID         uuid.UUID
+	ID      uuid.UUID
+	PlateID uuid.UUID
 	EventPayload
 	NormalizedPlate string
 }
@@ -43,4 +48,3 @@ type ProcessResult struct {
 	Plate   string    `json:"plate"`
 	Hits    []ListHit `json:"hits"`
 }
-

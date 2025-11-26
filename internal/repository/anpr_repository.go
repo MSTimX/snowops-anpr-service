@@ -47,23 +47,28 @@ type Plate struct {
 }
 
 type ANPREvent struct {
-	ID              uuid.UUID  `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
-	PlateID         *uuid.UUID `gorm:"type:uuid"`
-	CameraID        string     `gorm:"not null"`
-	CameraUUID      *uuid.UUID `gorm:"type:uuid"`
-	PolygonID       *uuid.UUID `gorm:"type:uuid"`
-	CameraModel     *string
-	Direction       *string
-	Lane            *int
-	RawPlate        string `gorm:"not null"`
-	NormalizedPlate string `gorm:"not null"`
-	Confidence      *float64
-	VehicleColor    *string
-	VehicleType     *string
-	SnapshotURL     *string
-	EventTime       time.Time      `gorm:"not null"`
-	RawPayload      datatypes.JSON `gorm:"type:jsonb"`
-	CreatedAt       time.Time
+	ID                uuid.UUID  `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	PlateID           *uuid.UUID `gorm:"type:uuid"`
+	CameraID          string     `gorm:"not null"`
+	CameraUUID        *uuid.UUID `gorm:"type:uuid"`
+	PolygonID         *uuid.UUID `gorm:"type:uuid"`
+	CameraModel       *string
+	Direction         *string
+	Lane              *int
+	RawPlate          string `gorm:"not null"`
+	NormalizedPlate   string `gorm:"not null"`
+	Confidence        *float64
+	VehicleColor      *string
+	VehicleType       *string
+	VehicleBrand      *string
+	VehicleModel      *string
+	VehicleCountry    *string
+	VehiclePlateColor *string
+	VehicleSpeed      *float64
+	SnapshotURL       *string
+	EventTime         time.Time      `gorm:"not null"`
+	RawPayload        datatypes.JSON `gorm:"type:jsonb"`
+	CreatedAt         time.Time
 }
 
 type List struct {
@@ -131,6 +136,21 @@ func (r *ANPRRepository) CreateANPREvent(ctx context.Context, event *anpr.Event)
 	}
 	if event.Vehicle.Type != "" {
 		dbEvent.VehicleType = &event.Vehicle.Type
+	}
+	if event.Vehicle.Brand != "" {
+		dbEvent.VehicleBrand = &event.Vehicle.Brand
+	}
+	if event.Vehicle.Model != "" {
+		dbEvent.VehicleModel = &event.Vehicle.Model
+	}
+	if event.Vehicle.Country != "" {
+		dbEvent.VehicleCountry = &event.Vehicle.Country
+	}
+	if event.Vehicle.PlateColor != "" {
+		dbEvent.VehiclePlateColor = &event.Vehicle.PlateColor
+	}
+	if event.Vehicle.Speed != nil {
+		dbEvent.VehicleSpeed = event.Vehicle.Speed
 	}
 	if event.SnapshotURL != "" {
 		dbEvent.SnapshotURL = &event.SnapshotURL

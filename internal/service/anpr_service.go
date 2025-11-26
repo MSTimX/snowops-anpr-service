@@ -16,7 +16,7 @@ import (
 
 var (
 	ErrInvalidInput = errors.New("invalid input")
-	ErrNotFound      = errors.New("not found")
+	ErrNotFound     = errors.New("not found")
 )
 
 type ANPRService struct {
@@ -194,19 +194,24 @@ func (s *ANPRService) FindEvents(ctx context.Context, plateQuery *string, from, 
 			plateID = &id
 		}
 		info := EventInfo{
-			ID:              e.ID.String(),
-			PlateID:         plateID,
-			CameraID:        e.CameraID,
-			CameraModel:     e.CameraModel,
-			Direction:       e.Direction,
-			Lane:            e.Lane,
-			RawPlate:        e.RawPlate,
-			NormalizedPlate: e.NormalizedPlate,
-			Confidence:      e.Confidence,
-			VehicleColor:    e.VehicleColor,
-			VehicleType:     e.VehicleType,
-			SnapshotURL:     e.SnapshotURL,
-			EventTime:       e.EventTime,
+			ID:                e.ID.String(),
+			PlateID:           plateID,
+			CameraID:          e.CameraID,
+			CameraModel:       e.CameraModel,
+			Direction:         e.Direction,
+			Lane:              e.Lane,
+			RawPlate:          e.RawPlate,
+			NormalizedPlate:   e.NormalizedPlate,
+			Confidence:        e.Confidence,
+			VehicleColor:      e.VehicleColor,
+			VehicleType:       e.VehicleType,
+			VehicleBrand:      e.VehicleBrand,
+			VehicleModel:      e.VehicleModel,
+			VehicleCountry:    e.VehicleCountry,
+			VehiclePlateColor: e.VehiclePlateColor,
+			VehicleSpeed:      e.VehicleSpeed,
+			SnapshotURL:       e.SnapshotURL,
+			EventTime:         e.EventTime,
 		}
 		result = append(result, info)
 	}
@@ -235,12 +240,12 @@ func (s *ANPRService) SyncVehicleToWhitelist(ctx context.Context, plateNumber st
 		s.log.Error().Err(err).Str("plate_number", plateNumber).Msg("failed to sync vehicle to whitelist")
 		return uuid.Nil, fmt.Errorf("sync vehicle to whitelist: %w", err)
 	}
-	
+
 	s.log.Info().
 		Str("plate_number", plateNumber).
 		Str("plate_id", plateID.String()).
 		Msg("vehicle synced to whitelist")
-	
+
 	return plateID, nil
 }
 
@@ -252,18 +257,22 @@ type PlateInfo struct {
 }
 
 type EventInfo struct {
-	ID              string     `json:"id"`
-	PlateID         *string    `json:"plate_id,omitempty"`
-	CameraID        string     `json:"camera_id"`
-	CameraModel     *string    `json:"camera_model,omitempty"`
-	Direction       *string    `json:"direction,omitempty"`
-	Lane            *int       `json:"lane,omitempty"`
-	RawPlate        string     `json:"raw_plate"`
-	NormalizedPlate string     `json:"normalized_plate"`
-	Confidence      *float64   `json:"confidence,omitempty"`
-	VehicleColor    *string    `json:"vehicle_color,omitempty"`
-	VehicleType     *string    `json:"vehicle_type,omitempty"`
-	SnapshotURL     *string    `json:"snapshot_url,omitempty"`
-	EventTime       time.Time  `json:"event_time"`
+	ID                string    `json:"id"`
+	PlateID           *string   `json:"plate_id,omitempty"`
+	CameraID          string    `json:"camera_id"`
+	CameraModel       *string   `json:"camera_model,omitempty"`
+	Direction         *string   `json:"direction,omitempty"`
+	Lane              *int      `json:"lane,omitempty"`
+	RawPlate          string    `json:"raw_plate"`
+	NormalizedPlate   string    `json:"normalized_plate"`
+	Confidence        *float64  `json:"confidence,omitempty"`
+	VehicleColor      *string   `json:"vehicle_color,omitempty"`
+	VehicleType       *string   `json:"vehicle_type,omitempty"`
+	VehicleBrand      *string   `json:"vehicle_brand,omitempty"`
+	VehicleModel      *string   `json:"vehicle_model,omitempty"`
+	VehicleCountry    *string   `json:"vehicle_country,omitempty"`
+	VehiclePlateColor *string   `json:"vehicle_plate_color,omitempty"`
+	VehicleSpeed      *float64  `json:"vehicle_speed,omitempty"`
+	SnapshotURL       *string   `json:"snapshot_url,omitempty"`
+	EventTime         time.Time `json:"event_time"`
 }
-
