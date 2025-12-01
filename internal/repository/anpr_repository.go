@@ -103,7 +103,7 @@ func (r *ANPRRepository) GetOrCreatePlate(ctx context.Context, normalized, origi
 		CreatedAt:  time.Now(),
 	}
 	if err := r.db.WithContext(ctx).Create(&plate).Error; err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("failed to create plate: %w", err)
 	}
 	return plate.ID, nil
 }
@@ -164,7 +164,7 @@ func (r *ANPRRepository) CreateANPREvent(ctx context.Context, event *anpr.Event)
 	}
 
 	if err := r.db.WithContext(ctx).Create(&dbEvent).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to create ANPR event in database: %w", err)
 	}
 
 	event.ID = dbEvent.ID

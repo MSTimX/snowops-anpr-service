@@ -67,16 +67,37 @@ func (h *Handler) createANPREvent(c *gin.Context) {
 		payload.EventTime = time.Now()
 	}
 
+	h.log.Info().
+		Str("plate", payload.Plate).
+		Str("camera_id", payload.CameraID).
+		Msg("processing ANPR event")
+
 	result, err := h.anprService.ProcessIncomingEvent(c.Request.Context(), payload, h.config.Camera.Model)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidInput) {
+			h.log.Warn().
+				Err(err).
+				Str("plate", payload.Plate).
+				Str("camera_id", payload.CameraID).
+				Msg("invalid input for ANPR event")
 			c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
 			return
 		}
-		h.log.Error().Err(err).Msg("failed to process ANPR event")
+		h.log.Error().
+			Err(err).
+			Str("plate", payload.Plate).
+			Str("camera_id", payload.CameraID).
+			Msg("failed to process ANPR event")
 		c.JSON(http.StatusInternalServerError, errorResponse("internal error"))
 		return
 	}
+
+	h.log.Info().
+		Str("event_id", result.EventID.String()).
+		Str("plate_id", result.PlateID.String()).
+		Str("plate", result.Plate).
+		Int("hits_count", len(result.Hits)).
+		Msg("successfully processed and saved ANPR event")
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":   "ok",
@@ -205,6 +226,12 @@ func (h *Handler) createHikvisionEvent(c *gin.Context) {
 		Str("device_id", hikEvent.DeviceID).
 		Str("channel_id", hikEvent.ChannelID).
 		Str("date_time", hikEvent.DateTime).
+		Str("vehicle_info_color", hikEvent.VehicleInfo.Color).
+		Str("vehicle_info_brand", hikEvent.VehicleInfo.Brand).
+		Str("vehicle_info_logo_recog", hikEvent.VehicleInfo.VehicleLogoRecog).
+		Str("vehicle_info_model", hikEvent.VehicleInfo.Model).
+		Str("vehicle_info_vehile_model", hikEvent.VehicleInfo.VehileModel).
+		Str("gat_color", hikEvent.VehicleGATInfo.ColorByGAT).
 		Msg("parsed Hikvision event")
 
 	payload := hikEvent.ToEventPayload(xmlPayload)
@@ -349,14 +376,23 @@ type hikvisionEvent struct {
 		Speed           string  `xml:"speed" json:"speed"`
 	} `xml:"ANPR" json:"anpr"`
 	VehicleInfo struct {
-		Type       string `xml:"vehicleType" json:"vehicle_type"`
-		Color      string `xml:"vehicleColor" json:"vehicle_color"`
-		Brand      string `xml:"brand" json:"brand"`
-		Model      string `xml:"vehicleModel" json:"vehicle_model"`
-		PlateColor string `xml:"plateColor" json:"plate_color"`
-		Country    string `xml:"country" json:"country"`
-		Speed      string `xml:"speed" json:"speed"`
+		Type             string `xml:"vehicleType" json:"vehicle_type"`
+		Color            string `xml:"color" json:"color"`
+		VehicleColor     string `xml:"vehicleColor" json:"vehicle_color"`
+		Brand            string `xml:"brand" json:"brand"`
+		VehicleLogoRecog string `xml:"vehicleLogoRecog" json:"vehicle_logo_recog"`
+		Model            string `xml:"vehicleModel" json:"vehicle_model"`
+		VehileModel      string `xml:"vehileModel" json:"vehile_model"`
+		PlateColor       string `xml:"plateColor" json:"plate_color"`
+		Country          string `xml:"country" json:"country"`
+		Speed            string `xml:"speed" json:"speed"`
 	} `xml:"vehicleInfo" json:"vehicle_info"`
+	VehicleGATInfo struct {
+		VehicleTypeByGAT string `xml:"vehicleTypeByGAT" json:"vehicle_type_by_gat"`
+		ColorByGAT       string `xml:"colorByGAT" json:"color_by_gat"`
+		PlateTypeByGAT   string `xml:"palteTypeByGAT" json:"plate_type_by_gat"`
+		PlateColorByGAT  string `xml:"plateColorByGAT" json:"plate_color_by_gat"`
+	} `xml:"VehicleGATInfo" json:"vehicle_gat_info"`
 	PicInfo struct {
 		StoragePath string   `xml:"ftpPath" json:"ftp_path"`
 		FilePath    string   `xml:"filePath" json:"file_path"`
@@ -368,12 +404,48 @@ func (e *hikvisionEvent) ToEventPayload(rawXML []byte) anpr.EventPayload {
 	eventTime := parseHikvisionTime(e.DateTime)
 	lane := parseLane(e.ANPR.LaneNo)
 
-	vehicleColor := firstNonEmpty(e.ANPR.VehicleColor, e.ANPR.Color, e.VehicleInfo.Color)
-	vehicleType := firstNonEmpty(e.ANPR.VehicleType, e.VehicleInfo.Type)
-	vehiclePlateColor := firstNonEmpty(e.ANPR.PlateColor, e.VehicleInfo.PlateColor)
+	// Цвет: ПРИОРИТЕТ - текстовые значения из vehicleInfo, НЕ используем GAT коды если есть текст
+	// GAT коды (H, C и т.д.) - это числовые коды, не читаемые названия
+	vehicleColor := firstNonEmpty(
+		e.VehicleInfo.Color,        // "blue", "white" - текстовое значение (ПРИОРИТЕТ)
+		e.VehicleInfo.VehicleColor, // альтернативное поле в vehicleInfo
+		e.ANPR.VehicleColor,        // из ANPR секции (если есть)
+		e.ANPR.Color,               // альтернативное поле в ANPR
+	)
+	// НЕ используем GAT коды - они нечитаемые (H, C и т.д.)
+	// Если текстового значения нет, оставляем пустым
+
+	// Тип: сначала из ANPR, потом из GAT, потом из vehicleInfo
+	vehicleType := firstNonEmpty(
+		e.ANPR.VehicleType,
+		e.VehicleGATInfo.VehicleTypeByGAT,
+		e.VehicleInfo.Type,
+	)
+	vehiclePlateColor := firstNonEmpty(
+		e.ANPR.PlateColor,
+		e.VehicleGATInfo.PlateColorByGAT,
+		e.VehicleInfo.PlateColor,
+	)
 	vehicleCountry := firstNonEmpty(e.ANPR.Country, e.VehicleInfo.Country)
+
+	// Бренд: сначала текстовое значение, потом ID из vehicleLogoRecog
 	vehicleBrand := firstNonEmpty(e.VehicleInfo.Brand, e.ANPR.Brand)
-	vehicleModel := e.VehicleInfo.Model
+	// Если текстового значения нет, но есть ID логотипа, сохраняем ID
+	if vehicleBrand == "" && e.VehicleInfo.VehicleLogoRecog != "" && e.VehicleInfo.VehicleLogoRecog != "0" {
+		vehicleBrand = "brand_id:" + e.VehicleInfo.VehicleLogoRecog
+	}
+
+	// Модель: сначала текстовое значение, потом ID из vehileModel
+	vehicleModel := firstNonEmpty(e.VehicleInfo.Model, e.VehicleInfo.VehileModel)
+	// Если текстового значения нет, но есть ID модели, сохраняем ID (игнорируем "0")
+	if vehicleModel == "" || vehicleModel == "0" {
+		// Если есть другой ID модели, используем его
+		if e.VehicleInfo.VehileModel != "" && e.VehicleInfo.VehileModel != "0" {
+			vehicleModel = "model_id:" + e.VehicleInfo.VehileModel
+		} else {
+			vehicleModel = ""
+		}
+	}
 	speedPtr := parseOptionalFloat(firstNonEmpty(e.VehicleInfo.Speed, e.ANPR.Speed))
 
 	cameraModel := firstNonEmpty(e.DeviceName, e.DeviceID)
@@ -393,6 +465,7 @@ func (e *hikvisionEvent) ToEventPayload(rawXML []byte) anpr.EventPayload {
 		"protocol_type":     e.ProtocolType,
 		"anpr":              e.ANPR,
 		"vehicle_info":      e.VehicleInfo,
+		"vehicle_gat_info":  e.VehicleGATInfo,
 	}
 	if len(rawXML) > 0 {
 		rawPayload["xml"] = string(rawXML)

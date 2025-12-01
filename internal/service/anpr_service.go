@@ -49,9 +49,19 @@ func (s *ANPRService) ProcessIncomingEvent(ctx context.Context, payload anpr.Eve
 
 	plateID, err := s.repo.GetOrCreatePlate(ctx, normalized, payload.Plate)
 	if err != nil {
-		s.log.Error().Err(err).Msg("failed to get or create plate")
+		s.log.Error().
+			Err(err).
+			Str("normalized", normalized).
+			Str("original", payload.Plate).
+			Msg("failed to get or create plate")
 		return nil, fmt.Errorf("failed to get or create plate: %w", err)
 	}
+	
+	s.log.Info().
+		Str("plate_id", plateID.String()).
+		Str("normalized", normalized).
+		Str("original", payload.Plate).
+		Msg("plate retrieved or created successfully")
 
 	cameraModel := payload.CameraModel
 	if cameraModel == "" {
