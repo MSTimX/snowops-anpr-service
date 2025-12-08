@@ -27,6 +27,13 @@ type EventPayload struct {
 	Vehicle     VehicleInfo            `json:"vehicle"`
 	SnapshotURL string                 `json:"snapshot_url,omitempty"`
 	RawPayload  map[string]interface{} `json:"raw_payload,omitempty"`
+	// Поля для данных о снеге
+	SnowEventTime        *time.Time `json:"snow_event_time,omitempty"`
+	SnowCameraID         string     `json:"snow_camera_id,omitempty"`
+	SnowVolumePercentage *float64   `json:"snow_volume_percentage,omitempty"`
+	SnowVolumeConfidence *float64   `json:"snow_volume_confidence,omitempty"`
+	SnowDirectionAI      string     `json:"snow_direction_ai,omitempty"`
+	MatchedSnow          bool       `json:"matched_snow,omitempty"`
 }
 
 type Event struct {

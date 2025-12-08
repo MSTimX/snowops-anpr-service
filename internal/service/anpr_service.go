@@ -75,6 +75,31 @@ func (s *ANPRService) ProcessIncomingEvent(ctx context.Context, payload anpr.Eve
 	}
 	event.CameraModel = cameraModel
 
+	// Извлекаем данные о снеге из RawPayload, если они там есть
+	// (для обратной совместимости с данными, которые уже в RawPayload)
+	if payload.RawPayload != nil {
+		if snowEventTimeStr, ok := payload.RawPayload["snow_event_time"].(string); ok && snowEventTimeStr != "" {
+			if snowTime, err := time.Parse(time.RFC3339, snowEventTimeStr); err == nil {
+				event.SnowEventTime = &snowTime
+			}
+		}
+		if snowCameraID, ok := payload.RawPayload["snow_camera_id"].(string); ok && snowCameraID != "" {
+			event.SnowCameraID = snowCameraID
+		}
+		if snowVolumePct, ok := payload.RawPayload["snow_volume_percentage"].(float64); ok {
+			event.SnowVolumePercentage = &snowVolumePct
+		}
+		if snowVolumeConf, ok := payload.RawPayload["snow_volume_confidence"].(float64); ok {
+			event.SnowVolumeConfidence = &snowVolumeConf
+		}
+		if snowDirection, ok := payload.RawPayload["snow_direction_ai"].(string); ok && snowDirection != "" {
+			event.SnowDirectionAI = snowDirection
+		}
+		if matchedSnow, ok := payload.RawPayload["matched_snow"].(bool); ok {
+			event.MatchedSnow = matchedSnow
+		}
+	}
+
 	if err := s.repo.CreateANPREvent(ctx, event); err != nil {
 		s.log.Error().
 			Err(err).

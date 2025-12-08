@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -58,9 +59,44 @@ func (h *Handler) Register(r *gin.Engine, authMiddleware gin.HandlerFunc) {
 
 func (h *Handler) createANPREvent(c *gin.Context) {
 	var payload anpr.EventPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
-		return
+	
+	// Проверяем, является ли запрос multipart/form-data
+	contentType := c.Request.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		// Обрабатываем multipart запрос с JSON в поле "event"
+		if err := c.Request.ParseMultipartForm(10 << 20); err != nil {
+			h.log.Error().Err(err).Msg("failed to parse multipart request")
+			c.JSON(http.StatusBadRequest, errorResponse("invalid multipart payload"))
+			return
+		}
+		
+		// Извлекаем JSON из поля "event"
+		eventValue := c.Request.MultipartForm.Value["event"]
+		if len(eventValue) == 0 {
+			c.JSON(http.StatusBadRequest, errorResponse("event field not found in multipart form"))
+			return
+		}
+		
+		// Парсим JSON
+		if err := json.Unmarshal([]byte(eventValue[0]), &payload); err != nil {
+			h.log.Error().Err(err).Msg("failed to parse event JSON from multipart")
+			c.JSON(http.StatusBadRequest, errorResponse("invalid event JSON"))
+			return
+		}
+		
+		// Обрабатываем фотографии (опционально)
+		// Фотографии можно сохранить и добавить их URL в payload.SnapshotURL
+		// Пока просто логируем наличие фотографий
+		if files := c.Request.MultipartForm.File["photos"]; len(files) > 0 {
+			h.log.Debug().Int("photos_count", len(files)).Msg("received photos in multipart request")
+			// TODO: сохранить фотографии и добавить URL в payload
+		}
+	} else {
+		// Обычный JSON запрос
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
+			return
+		}
 	}
 
 	if payload.EventTime.IsZero() {
