@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -54,6 +55,8 @@ func (h *Handler) Register(r *gin.Engine, authMiddleware gin.HandlerFunc) {
 	protected.Use(authMiddleware)
 	{
 		protected.POST("/anpr/sync-vehicle", h.syncVehicleToWhitelist)
+		protected.DELETE("/anpr/events/old", h.deleteOldEvents)
+		protected.DELETE("/anpr/events/all", h.deleteAllEvents)
 	}
 }
 
@@ -614,6 +617,65 @@ func (h *Handler) syncVehicleToWhitelist(c *gin.Context) {
 		"plate_id":     plateID.String(),
 		"plate_number": req.PlateNumber,
 		"message":      "vehicle added to whitelist",
+	})
+}
+
+func (h *Handler) deleteOldEvents(c *gin.Context) {
+	var req struct {
+		Days int `json:"days" binding:"required,min=1"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse("days parameter is required and must be >= 1"))
+		return
+	}
+
+	deletedCount, err := h.anprService.DeleteOldEvents(c.Request.Context(), req.Days)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
+			return
+		}
+		h.log.Error().Err(err).Int("days", req.Days).Msg("failed to delete old events")
+		c.JSON(http.StatusInternalServerError, errorResponse("failed to delete old events"))
+		return
+	}
+
+	h.log.Info().
+		Int("days", req.Days).
+		Int64("deleted_count", deletedCount).
+		Msg("deleted old events")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":        "ok",
+		"deleted_count": deletedCount,
+		"message":       fmt.Sprintf("deleted %d events older than %d days", deletedCount, req.Days),
+	})
+}
+
+func (h *Handler) deleteAllEvents(c *gin.Context) {
+	var req struct {
+		Confirm bool `json:"confirm" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil || !req.Confirm {
+		c.JSON(http.StatusBadRequest, errorResponse("confirmation required: set confirm=true"))
+		return
+	}
+
+	deletedCount, err := h.anprService.DeleteAllEvents(c.Request.Context())
+	if err != nil {
+		h.log.Error().Err(err).Msg("failed to delete all events")
+		c.JSON(http.StatusInternalServerError, errorResponse("failed to delete all events"))
+		return
+	}
+
+	h.log.Warn().Int64("deleted_count", deletedCount).Msg("deleted ALL events")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":        "ok",
+		"deleted_count": deletedCount,
+		"message":       fmt.Sprintf("deleted all %d events", deletedCount),
 	})
 }
 

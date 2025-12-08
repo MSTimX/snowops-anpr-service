@@ -284,6 +284,44 @@ func (s *ANPRService) SyncVehicleToWhitelist(ctx context.Context, plateNumber st
 	return plateID, nil
 }
 
+func (s *ANPRService) DeleteOldEvents(ctx context.Context, days int) (int64, error) {
+	if days < 1 {
+		return 0, fmt.Errorf("%w: days must be >= 1", ErrInvalidInput)
+	}
+
+	deletedCount, err := s.repo.DeleteOldEvents(ctx, days)
+	if err != nil {
+		s.log.Error().
+			Err(err).
+			Int("days", days).
+			Msg("failed to delete old events")
+		return 0, fmt.Errorf("failed to delete old events: %w", err)
+	}
+
+	s.log.Info().
+		Int("days", days).
+		Int64("deleted_count", deletedCount).
+		Msg("deleted old events")
+
+	return deletedCount, nil
+}
+
+func (s *ANPRService) DeleteAllEvents(ctx context.Context) (int64, error) {
+	deletedCount, err := s.repo.DeleteAllEvents(ctx)
+	if err != nil {
+		s.log.Error().
+			Err(err).
+			Msg("failed to delete all events")
+		return 0, fmt.Errorf("failed to delete all events: %w", err)
+	}
+
+	s.log.Warn().
+		Int64("deleted_count", deletedCount).
+		Msg("deleted ALL events")
+
+	return deletedCount, nil
+}
+
 type PlateInfo struct {
 	ID            string     `json:"id"`
 	Number        string     `json:"number"`
